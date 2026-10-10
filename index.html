@@ -89,6 +89,19 @@ ul.points li::marker{color:var(--accent)}
 .chip{font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 .proj .feat-list{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 24px;margin:4px 0 0;padding-left:18px}
 
+a.repo{color:inherit;text-decoration:none;transition:border-color .15s,transform .15s}
+a.repo:hover{border-color:var(--accent);transform:translateY(-2px)}
+.repo h3{overflow-wrap:anywhere}
+.repo .stack{margin-top:0;padding-top:0}
+.repo-meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:auto;padding-top:8px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.repo-meta .lang::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--lc,var(--muted));margin-right:6px}
+.skel{min-height:150px}
+.skel i{display:block;height:12px;border-radius:4px;background:var(--line);animation:pulse 1.2s ease-in-out infinite alternate}
+.skel i:nth-child(1){width:35%}.skel i:nth-child(2){width:70%;height:18px}.skel i:nth-child(3){width:90%}
+@keyframes pulse{to{opacity:.4}}
+.repo-more{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+.repo-note{color:var(--muted);margin:0}
+
 .skills{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
 .skills h3{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:500}
 .skills .stack{margin:0;padding:0}
@@ -108,7 +121,7 @@ footer{padding-block:32px 48px;color:var(--muted);font-size:13px;font-family:var
   .stats{grid-template-columns:1fr}
   .sec-head .eyebrow{margin-left:0;width:100%}
 }
-@media (prefers-reduced-motion:reduce){.bar i{animation:none}.btn:hover{transform:none}}
+@media (prefers-reduced-motion:reduce){.bar i,.skel i{animation:none}.btn:hover,a.repo:hover{transform:none}}
 </style>
 <style>body{margin:0}</style>
 </head>
@@ -117,7 +130,7 @@ footer{padding-block:32px 48px;color:var(--muted);font-size:13px;font-family:var
 <nav><div class="wrap">
   <a class="logo" href="#top">yasir<span>.eval()</span></a>
   <div class="links">
-    <a href="#experience">Experience</a><a href="#projects">Projects</a><a href="#skills">Skills</a><a href="#education">Education</a><a href="#contact">Contact</a>
+    <a href="#experience">Experience</a><a href="#projects">Projects</a><a href="#repos">GitHub</a><a href="#skills">Skills</a><a href="#education">Education</a><a href="#contact">Contact</a>
   </div>
 </div></nav>
 
@@ -213,6 +226,21 @@ footer{padding-block:32px 48px;color:var(--muted);font-size:13px;font-family:var
     </div>
   </section>
 
+  <section id="repos">
+    <div class="sec-head"><h2>Latest on GitHub</h2><span class="eyebrow" id="repo-status">syncing with github…</span></div>
+    <div class="projects" id="repo-grid" aria-live="polite" aria-busy="true">
+      <div class="proj skel"><i></i><i></i><i></i></div>
+      <div class="proj skel"><i></i><i></i><i></i></div>
+      <div class="proj skel"><i></i><i></i><i></i></div>
+      <div class="proj skel"><i></i><i></i><i></i></div>
+    </div>
+    <noscript><p class="repo-note">Enable JavaScript to see my latest repositories, or browse them on GitHub.</p></noscript>
+    <div class="repo-more">
+      <button class="btn" id="repo-toggle" type="button" hidden>Show all</button>
+      <a class="btn" href="https://github.com/faryasir07?tab=repositories" target="_blank" rel="noopener">All repositories ↗</a>
+    </div>
+  </section>
+
   <section id="skills">
     <div class="sec-head"><h2>Skills</h2></div>
     <div class="skills">
@@ -258,6 +286,100 @@ document.getElementById('copy').addEventListener('click', e => {
   } catch(_) { sel(); }
   function sel(){ const r=document.createRange(); r.selectNodeContents(document.getElementById('mail')); const s=getSelection(); s.removeAllRanges(); s.addRange(r); }
 });
+
+// Live GitHub repos: every public repo you push shows up here on the next page load.
+const GH = {
+  user: 'faryasir07',
+  exclude: ['portfolio', 'faryasir07.github.io', 'skills-introduction-to-github'], // repo names to hide
+  showForks: false,
+  initial: 6,          // cards shown before "Show all"
+  cacheMinutes: 15     // the unauthenticated API allows 60 requests/hour per visitor
+};
+const LANG_COLORS = {'Python':'#3572A5','Jupyter Notebook':'#DA5B0B','HTML':'#E34C26','CSS':'#563D7C','JavaScript':'#F1E05A','TypeScript':'#3178C6','C++':'#F34B7D','C':'#555555','Java':'#B07219','Go':'#00ADD8','Rust':'#DEA584','Shell':'#89E051'};
+const CACHE_KEY = 'gh-repos-v1';
+
+(function () {
+  const grid = document.getElementById('repo-grid');
+  const status = document.getElementById('repo-status');
+  const toggle = document.getElementById('repo-toggle');
+  const rtf = new Intl.RelativeTimeFormat('en', {numeric: 'auto'});
+
+  function ago(iso) {
+    let s = (new Date(iso) - Date.now()) / 1000;
+    for (const [unit, n] of [['second',60],['minute',60],['hour',24],['day',30],['month',12],['year',Infinity]]) {
+      if (Math.abs(s) < n) return rtf.format(Math.round(s), unit);
+      s /= n;
+    }
+  }
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function pretty(name) { return name.replace(/[-_]+/g, ' ').trim(); }
+
+  function card(r) {
+    const a = el('a', 'proj repo');
+    a.href = r.html_url; a.target = '_blank'; a.rel = 'noopener';
+    a.append(el('div', 'kind', 'Updated ' + ago(r.pushed_at)));
+    a.append(el('h3', null, pretty(r.name)));
+    a.append(el('p', null, r.description || 'No description yet.'));
+    if (r.topics && r.topics.length) {
+      const st = el('div', 'stack');
+      r.topics.slice(0, 5).forEach(t => st.append(el('span', 'chip', t)));
+      a.append(st);
+    }
+    const meta = el('div', 'repo-meta');
+    if (r.language) {
+      const l = el('span', 'lang', r.language);
+      l.style.setProperty('--lc', LANG_COLORS[r.language] || 'var(--muted)');
+      meta.append(l);
+    }
+    if (r.stargazers_count) meta.append(el('span', null, '★ ' + r.stargazers_count));
+    if (r.forks_count) meta.append(el('span', null, '⑂ ' + r.forks_count));
+    if (r.homepage) meta.append(el('span', null, 'live demo'));
+    a.append(meta);
+    return a;
+  }
+
+  function render(data, fetchedAt, stale) {
+    const repos = data
+      .filter(r => (GH.showForks || !r.fork) && !r.archived && !GH.exclude.includes(r.name))
+      .sort((a, b) => new Date(b.pushed_at) - new Date(a.pushed_at));
+    let expanded = false;
+    const draw = () => {
+      grid.replaceChildren(...repos.slice(0, expanded ? repos.length : GH.initial).map(card));
+      toggle.hidden = repos.length <= GH.initial;
+      toggle.textContent = expanded ? 'Show fewer' : 'Show all ' + repos.length;
+    };
+    toggle.onclick = () => { expanded = !expanded; draw(); if (!expanded) grid.scrollIntoView({block: 'nearest'}); };
+    draw();
+    grid.setAttribute('aria-busy', 'false');
+    status.textContent = (stale ? 'offline copy · ' : 'live from github · ') + repos.length + ' repos · synced ' + ago(fetchedAt);
+  }
+
+  function readCache() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch (_) { return null; }
+  }
+
+  const cached = readCache();
+  if (cached && Date.now() - cached.at < GH.cacheMinutes * 60000) { render(cached.data, cached.at, false); return; }
+
+  fetch('https://api.github.com/users/' + GH.user + '/repos?per_page=100&sort=pushed', {headers: {Accept: 'application/vnd.github+json'}})
+    .then(res => { if (!res.ok) throw new Error(res.status); return res.json(); })
+    .then(data => {
+      const at = Date.now();
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({at, data})); } catch (_) {}
+      render(data, at, false);
+    })
+    .catch(() => {
+      if (cached) { render(cached.data, cached.at, true); return; }
+      grid.setAttribute('aria-busy', 'false');
+      grid.replaceChildren(el('p', 'repo-note', 'Couldn’t reach GitHub right now. Browse my repositories directly instead.'));
+      status.textContent = 'github unavailable';
+    });
+})();
 </script>
 </body>
 </html>
